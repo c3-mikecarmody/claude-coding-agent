@@ -1,4 +1,4 @@
-# claude-coding-agent
+# Coding Agent Autonomy Stack
 
 An autonomous coding pipeline for Claude Code. Drop it into any project and run `/build`.
 
