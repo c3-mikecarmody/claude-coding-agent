@@ -140,12 +140,17 @@ function parseEvalHistory() {
       return na - nb;
     });
 
-  return files.map(f => readJSON(path.join(dir, f))).filter(Boolean);
+  return files.map(f => {
+    const data = readJSON(path.join(dir, f));
+    if (!data) return null;
+    return { ...data, _mtime: fileMtime(path.join(dir, f)) };
+  }).filter(Boolean);
 }
 
 function buildStatus() {
   const ticketPath = path.join(ARTIFACTS, 'ticket.md');
   const specPath   = path.join(ARTIFACTS, 'spec.md');
+  const notesPath  = path.join(ARTIFACTS, 'notes.md');
   const tasksPath  = path.join(ARTIFACTS, 'tasks.json');
   const evalPath   = path.join(ARTIFACTS, 'eval.json');
 
@@ -158,6 +163,15 @@ function buildStatus() {
 
   const ticketText = readText(ticketPath);
   const ticket = parseTicket(ticketText);
+
+  const specText  = readText(specPath);
+  const notesText = readText(notesPath);
+
+  const ticketLoadedAt   = fileMtime(ticketPath);
+  const evalCompletedAt  = fileMtime(evalPath);
+  const duration = (ticketLoadedAt && evalCompletedAt)
+    ? Math.floor((new Date(evalCompletedAt) - new Date(ticketLoadedAt)) / 1000)
+    : null;
 
   const tasksData = readJSON(tasksPath);
   const tasks = tasksData ? (tasksData.tasks || tasksData) : null;
@@ -192,6 +206,11 @@ function buildStatus() {
     timeline,
     evalHistory,
     artifacts: artifactFiles,
+    spec: specText,
+    notes: notesText,
+    duration,
+    ticketLoadedAt,
+    evalCompletedAt,
   };
 }
 
@@ -382,6 +401,28 @@ const HTML = `<!DOCTYPE html>
   .mt-8 { margin-top: 8px; }
 
   .last-updated { font-size: 11px; color: var(--text-muted); }
+
+  .duration-display { font-size: 12px; color: var(--text-muted); margin-left: 4px; }
+
+  .details-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--text-muted); font-size: 12px; padding: 3px 10px; border-radius: 6px; cursor: pointer; }
+  .details-btn:hover { color: var(--text); border-color: var(--accent); }
+
+  .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:1000; align-items:center; justify-content:center; }
+  .modal-overlay.open { display:flex; }
+  .modal { background:#1e1e2e; border:1px solid #333; border-radius:8px; padding:24px; max-width:720px; width:90%; max-height:80vh; overflow-y:auto; position:relative; }
+  .modal-close { position:absolute; top:12px; right:16px; background:none; border:none; color:#aaa; font-size:20px; cursor:pointer; }
+  .modal-close:hover { color:#fff; }
+  .modal h3 { color:#cdd6f4; margin:16px 0 8px; font-size:14px; text-transform:uppercase; letter-spacing:.05em; border-bottom:1px solid #333; padding-bottom:4px; }
+  .modal h3:first-child { margin-top:0; }
+  .modal pre { background:#12121a; border-radius:4px; padding:12px; font-size:12px; white-space:pre-wrap; word-break:break-word; color:#a6adc8; overflow-x:auto; max-height:200px; overflow-y:auto; }
+  .modal .task-row { padding:8px 0; border-bottom:1px solid #2a2a3a; }
+  .modal .task-row:last-child { border-bottom:none; }
+  .modal .task-id { color:#89b4fa; font-family:monospace; font-size:12px; }
+  .modal .task-desc { color:#cdd6f4; font-size:13px; margin:4px 0; }
+  .modal .task-files { color:#6c7086; font-size:11px; font-family:monospace; }
+  .modal .issue-row { padding:6px 8px; margin:4px 0; border-radius:4px; background:#12121a; font-size:12px; }
+  .modal .issue-row .sev-error { color:#f38ba8; }
+  .modal .issue-row .sev-warning { color:#fab387; }
 </style>
 </head>
 <body>
@@ -390,7 +431,9 @@ const HTML = `<!DOCTYPE html>
   <div class="header">
     <h1>Agent Pipeline Dashboard</h1>
     <span id="phase-badge" class="badge">loading…</span>
+    <span id="duration-display" class="duration-display"></span>
     <span id="ticket-info" class="ticket-info"></span>
+    <button class="details-btn" onclick="openModal(_lastData)">Details</button>
     <div class="header-right"><span class="last-updated" id="last-updated"></span></div>
   </div>
 
@@ -425,6 +468,13 @@ const HTML = `<!DOCTYPE html>
       <div id="artifacts" class="mt-8"></div>
     </details>
   </div>
+
+  <div id="modal-overlay" class="modal-overlay">
+    <div class="modal">
+      <button id="modal-close" class="modal-close" onclick="closeModal()">&#x2715;</button>
+      <div id="modal-body"></div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -445,6 +495,18 @@ const KNOWN_AGENTS = ['planner', 'decomposer', 'executor', 'evaluator'];
 function esc(s) {
   if (s == null) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function truncate(s, max) {
+  if (!s) return '';
+  return s.length > max ? s.slice(0, max) + '\u2026' : s;
+}
+
+function formatDuration(s) {
+  if (s < 60) return s + 's';
+  var m = Math.floor(s / 60), sec = s % 60;
+  if (m < 60) return m + 'm ' + sec + 's';
+  return Math.floor(m/60) + 'h ' + (m%60) + 'm';
 }
 
 function fmtTime(iso) {
@@ -493,8 +555,7 @@ function renderAgents(agentsData) {
     map[key] = a;
   }
 
-  return KNOWN_AGENTS.map(name => {
-    const a = map[name] || null;
+  function agentCard(name, a) {
     const status = a ? (a.stalled ? 'stalled' : a.status) : 'idle';
     const dotCls = 'dot-' + status;
     let elapsedStr = '';
@@ -508,13 +569,24 @@ function renderAgents(agentsData) {
       </div>
       \${elapsedStr ? \`<div class="elapsed">\${esc(elapsedStr)}</div>\` : ''}
     </div>\`;
-  }).join('');
+  }
+
+  const knownCards = KNOWN_AGENTS.map(name => agentCard(name, map[name] || null));
+
+  // Executor-task agents (executor-task1, executor-task2, etc.)
+  const taskAgents = agentsData.filter(a => (a.agent || '').startsWith('executor-task'));
+  const taskCards = taskAgents.map(a => agentCard(a.agent, a));
+
+  return knownCards.concat(taskCards).join('');
 }
 
 function renderEval(ev) {
   if (!ev) return '';
   const vCls = ev.verdict === 'pass' ? 'verdict-pass' : 'verdict-fail';
-  const issues = (ev.issues || []).map(i => \`<li>\${esc(typeof i === 'string' ? i : JSON.stringify(i))}</li>\`).join('');
+  const issues = (ev.issues || []).map(i => {
+    const txt = typeof i === 'string' ? i : [i.severity, i.file, i.line ? 'L' + i.line : '', i.reason || i.message || ''].filter(Boolean).join(' \u2014 ');
+    return \`<li>\${esc(txt)}</li>\`;
+  }).join('');
   return \`<div>
     <span class="\${vCls}">\${esc(ev.verdict || '—')}</span>
     \${ev.summary ? \`<p class="mt-8">\${esc(ev.summary)}</p>\` : ''}
@@ -565,10 +637,27 @@ function render(data) {
   const ti = document.getElementById('ticket-info');
   if (data.ticket && (data.ticket.id || data.ticket.summary)) {
     ti.innerHTML = data.ticket.id
-      ? \`<span class="ticket-id">\${esc(data.ticket.id)}</span> — \${esc(data.ticket.summary)} <span style="color:var(--text-muted)">[</span>\${esc(data.ticket.source)}<span style="color:var(--text-muted)">]</span>\`
-      : esc(data.ticket.summary);
+      ? \`<span class="ticket-id">\${esc(data.ticket.id)}</span> — \${esc(truncate(data.ticket.summary, 60))} <span style="color:var(--text-muted)">[</span>\${esc(data.ticket.source)}<span style="color:var(--text-muted)">]</span>\`
+      : esc(truncate(data.ticket.summary, 60));
   } else {
     ti.textContent = '';
+  }
+
+  // Duration display (Change 2)
+  if (_durationInterval) { clearInterval(_durationInterval); _durationInterval = null; }
+  var durEl = document.getElementById('duration-display');
+  if (data.duration !== null && data.duration !== undefined) {
+    durEl.textContent = formatDuration(data.duration);
+  } else if (data.ticketLoadedAt) {
+    var _ticketLoadedAt = data.ticketLoadedAt;
+    var updateLiveDuration = function() {
+      var s = Math.floor((Date.now() - new Date(_ticketLoadedAt)) / 1000);
+      durEl.textContent = formatDuration(s);
+    };
+    updateLiveDuration();
+    _durationInterval = setInterval(updateLiveDuration, 1000);
+  } else {
+    durEl.textContent = '';
   }
 
   // Pipeline
@@ -605,11 +694,57 @@ function render(data) {
   document.getElementById('last-updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
 }
 
+var _lastData = null;
+var _durationInterval = null;
+
+function openModal(data) {
+  if (!data) return;
+  var b = document.getElementById('modal-body');
+  var h = '';
+  if (data.ticket) {
+    h += '<h3>Ticket</h3><p><strong>' + esc(data.ticket.id) + '</strong>: ' + esc(data.ticket.summary) + '</p>';
+  }
+  if (data.spec) {
+    h += '<h3>Plan</h3><pre>' + esc(data.spec) + '</pre>';
+  }
+  if (data.tasks && data.tasks.length) {
+    h += '<h3>Tasks</h3>';
+    data.tasks.forEach(function(t) {
+      var ag = (data.agents || []).find(function(a) { return a.agent === 'executor-task' + t.id; });
+      h += '<div class="task-row">';
+      h += '<div><span class="task-id">' + esc(t.id) + '</span>' + (ag ? ' <span style="font-size:11px;color:#6c7086">' + esc(ag.status) + '</span>' : '') + '</div>';
+      h += '<div style="color:#cdd6f4;font-size:13px;margin:4px 0">' + esc(t.description) + '</div>';
+      if (t.files && t.files.length) h += '<div class="task-files">' + t.files.map(esc).join(' · ') + '</div>';
+      h += '</div>';
+    });
+  }
+  if (data.eval) {
+    h += '<h3>Eval</h3>';
+    if (data.eval.summary) h += '<p>' + esc(data.eval.summary) + '</p>';
+    if (data.eval.issues && data.eval.issues.length) {
+      data.eval.issues.forEach(function(i) {
+        var txt = typeof i === 'string' ? i : [i.severity, i.file, i.line ? 'L' + i.line : '', i.reason || i.message || ''].filter(Boolean).join(' \u2014 ');
+        h += '<div class="issue-row">' + esc(txt) + '</div>';
+      });
+    }
+  }
+  if (data.notes) {
+    h += '<h3>Implementation Notes</h3><pre>' + esc(data.notes) + '</pre>';
+  }
+  b.innerHTML = h;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('open');
+}
+
 async function refresh() {
   try {
     const res = await fetch('/api/status');
     if (!res.ok) throw new Error(res.status);
     const data = await res.json();
+    _lastData = data;
     render(data);
   } catch(e) {
     document.getElementById('last-updated').textContent = 'Error: ' + e.message;
@@ -618,6 +753,8 @@ async function refresh() {
 
 refresh();
 setInterval(refresh, 2000);
+
+document.getElementById('modal-overlay').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
 </script>
 </body>
 </html>`;
