@@ -137,7 +137,17 @@ Spawn a subagent using `subagent_type: evaluator`. Tell it: "Evaluate the implem
 
 Wait for it to finish. It will print a summary and write `.agent/artifacts/eval.json`. Echo the evaluator's printed summary so it's visible in the main conversation.
 
-**4d. Check verdict**
+**4d. Archive eval snapshot**
+
+Copy the eval output to the history directory so each iteration's result is preserved:
+
+```bash
+mkdir -p .agent/artifacts/eval-history
+N=$(ls .agent/artifacts/eval-history/eval-*.json 2>/dev/null | wc -l | tr -d ' ')
+cp .agent/artifacts/eval.json .agent/artifacts/eval-history/eval-$((N+1)).json
+```
+
+**4e. Check verdict**
 
 Read `.agent/artifacts/eval.json`:
 - `verdict: "pass"` or `retry: false` → exit loop, go to Step 5
