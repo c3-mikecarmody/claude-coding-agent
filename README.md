@@ -7,10 +7,10 @@ An autonomous coding pipeline for Claude Code. Drop it into any project and run 
 `/build` orchestrates three agents in sequence:
 
 1. **Planner** (Opus) — explores the codebase, writes a structured spec to `.agent/artifacts/spec.md`
-2. **Executor** (Sonnet) — implements the spec, runs tests, writes notes. Spawns parallel subagents for independent work items.
+2. **Executor** (Sonnet) — implements the spec, runs tests, writes notes. Spawns parallel subagents in isolated git worktrees for independent work items.
 3. **Evaluator** (Opus) — skeptical code reviewer. Checks spec compliance, runs tests, writes a verdict to `.agent/artifacts/eval.json` and prints a summary.
 
-If the evaluator finds blocking issues, the executor retries with the feedback. Up to 3 iterations.
+If the evaluator finds blocking issues, the executor retries with the feedback. Up to 3 iterations. On a passing build, you'll be prompted to create a PR.
 
 ## Setup
 
@@ -56,7 +56,6 @@ All inter-agent communication lives in `.agent/artifacts/` (gitignored by defaul
 
 **Executor**
 - Smarter parallelism — dedicated decomposition step before spawning parallel executors, rather than having the orchestrator eyeball the spec
-- Worktree isolation per executor — use Claude Code's built-in `isolation: worktree` on the Agent tool so parallel executors can't stomp each other's changes
 
 **Observability**
 - Iteration log — a running `.agent/artifacts/log.md` capturing what each phase did, eval verdicts, and which issues were fixed; useful for debugging failed runs
