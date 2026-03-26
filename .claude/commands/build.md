@@ -41,20 +41,31 @@ Wait for it to complete. It will write `.agent/artifacts/spec.md`. If spec.md do
 
 ---
 
-**Step 3 — Execute → Evaluate loop**
+**Step 3 — Decompose**
+
+Spawn a subagent using `subagent_type: decomposer`. Tell it: "Decompose the spec into executable tasks."
+
+Wait for it to complete. It will write `.agent/artifacts/tasks.json`. If tasks.json does not exist after the decomposer finishes, abort with an error.
+
+---
+
+**Step 4 — Execute → Evaluate loop**
 
 Run up to 3 iterations. Track iteration count starting at 1.
 
-**3a. Execute**
+**4a. Execute**
 
-Read `.agent/artifacts/spec.md`. Look at the "Files to change" section to determine if there are independent work items that can be parallelized. If yes, spawn multiple subagents in parallel using `subagent_type: executor` with `isolation: "worktree"` — one per independent work item, each with a focused subset of the spec. If no clear parallelism exists, spawn a single `subagent_type: executor` agent with `isolation: "worktree"`.
+Read `.agent/artifacts/tasks.json`.
 
-- Iteration 1: tell the executor "Implement the spec at .agent/artifacts/spec.md"
-- Iterations 2–3: tell the executor "Fix only the blocking issues listed in .agent/artifacts/eval.json. Do not make unrelated changes. The spec is at .agent/artifacts/spec.md"
+- If `parallel: true`: spawn one `subagent_type: executor` per task in parallel, each with `isolation: "worktree"`. Pass each executor its specific task description and file list from tasks.json.
+- If `parallel: false`: spawn a single `subagent_type: executor` with `isolation: "worktree"`.
+
+- Iteration 1: tell each executor "Implement the spec at .agent/artifacts/spec.md. Your task: <task description>. Focus on these files: <file list>"
+- Iterations 2–3: tell each executor "Fix only the blocking issues in .agent/artifacts/eval.json that relate to your files. Do not make unrelated changes. The spec is at .agent/artifacts/spec.md"
 
 Wait for all executors to finish. For each executor that made changes, note the branch name returned.
 
-**3b. Merge worktree branches**
+**4b. Merge worktree branches**
 
 For each branch returned by an executor:
 
@@ -66,29 +77,29 @@ If any merge produces conflicts, print `[Merge conflict on <branch> — stopping
 
 If all merges succeed, continue.
 
-**3c. Evaluate**
+**4c. Evaluate**
 
 Spawn a subagent using `subagent_type: evaluator`. Tell it: "Evaluate the implementation against the spec at .agent/artifacts/spec.md"
 
 Wait for it to finish. It will print a summary and write `.agent/artifacts/eval.json`. Echo the evaluator's printed summary so it's visible in the main conversation.
 
-**3d. Check verdict**
+**4d. Check verdict**
 
 Read `.agent/artifacts/eval.json`:
-- `verdict: "pass"` or `retry: false` → exit loop, go to Step 4
-- `verdict: "fail"` and `retry: true` and iteration < 3 → print `[Iteration N failed — retrying executor with eval feedback]`, increment iteration, go to 3a
-- `verdict: "fail"` and iteration = 3 → exit loop, go to Step 4 (failure path)
+- `verdict: "pass"` or `retry: false` → exit loop, go to Step 5
+- `verdict: "fail"` and `retry: true` and iteration < 3 → print `[Iteration N failed — retrying executor with eval feedback]`, increment iteration, go to 4a
+- `verdict: "fail"` and iteration = 3 → exit loop, go to Step 5 (failure path)
 
 ---
 
-**Step 4 — Report**
+**Step 5 — Report**
 
 - If passed: print the eval summary and list any warnings from eval.json.
 - If failed after 3 iterations: print the final eval summary and the list of blocking issues with their file, line, and reason. Tell the user to inspect `.agent/artifacts/eval.json` for the full verdict. Stop here — do not create a PR.
 
 ---
 
-**Step 5 — PR (on pass only)**
+**Step 6 — PR (on pass only)**
 
 Ask the user: "Build passed. Would you like me to create a PR?"
 

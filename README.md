@@ -7,8 +7,9 @@ An autonomous coding pipeline for Claude Code. Drop it into any project and run 
 `/build` orchestrates three agents in sequence:
 
 1. **Planner** (Opus) — explores the codebase, writes a structured spec to `.agent/artifacts/spec.md`
-2. **Executor** (Sonnet) — implements the spec, runs tests, writes notes. Spawns parallel subagents in isolated git worktrees for independent work items.
-3. **Evaluator** (Opus) — skeptical code reviewer. Checks spec compliance, runs tests, writes a verdict to `.agent/artifacts/eval.json` and prints a summary.
+2. **Decomposer** (Haiku) — analyzes the spec and produces a structured task breakdown, identifying which work items can run in parallel without file conflicts.
+3. **Executor** (Sonnet) — implements the spec, runs tests, writes notes. Spawns parallel subagents in isolated git worktrees for independent work items.
+4. **Evaluator** (Opus) — skeptical code reviewer. Checks spec compliance, runs tests, writes a verdict to `.agent/artifacts/eval.json` and prints a summary.
 
 If the evaluator finds blocking issues, the executor retries with the feedback. Up to 3 iterations. On a passing build, you'll be prompted to create a PR.
 
@@ -43,7 +44,8 @@ All inter-agent communication lives in `.agent/artifacts/` (gitignored by defaul
 
 | File | Written by | Read by |
 |------|-----------|---------|
-| `spec.md` | Planner | Executor, Evaluator |
+| `spec.md` | Planner | Decomposer, Executor, Evaluator |
+| `tasks.json` | Decomposer | Orchestrator, Executor |
 | `notes.md` | Executor | Evaluator |
 | `eval.json` | Evaluator | Orchestrator, Executor (on retry) |
 
@@ -55,7 +57,6 @@ All inter-agent communication lives in `.agent/artifacts/` (gitignored by defaul
 - Evaluator confidence scoring — distinguish "barely passing" from "clearly passing"
 
 **Executor**
-- Smarter parallelism — dedicated decomposition step before spawning parallel executors, rather than having the orchestrator eyeball the spec
 
 **Observability**
 - Iteration log — a running `.agent/artifacts/log.md` capturing what each phase did, eval verdicts, and which issues were fixed; useful for debugging failed runs
