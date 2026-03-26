@@ -26,6 +26,8 @@ Open the project in Claude Code. No other setup needed.
 
 ## Usage
 
+### `/build`
+
 ```
 /build <task description>
 ```
@@ -38,12 +40,27 @@ Examples:
 /build add pagination to the /users endpoint
 ```
 
+### `/jira-build`
+
+Fetch a Jira ticket and run it through the same pipeline. Requires the Atlassian MCP to be configured.
+
+```
+/jira-build                      # pick from most urgent open tickets
+/jira-build SWAT-42              # run a specific ticket
+/jira-build --urgent             # run the single highest-priority ticket without picking
+/jira-build project=SWAT         # scope ticket search to a project
+/jira-build SWAT-42 project=SWAT # specific ticket, explicit project
+```
+
+Ticket summary, description, and acceptance criteria are passed to the planner as context. On a passing build, the PR title is automatically set to `<ticket-id>: <summary>`.
+
 ## Artifacts
 
 All inter-agent communication lives in `.agent/artifacts/` (gitignored by default):
 
 | File | Written by | Read by |
 |------|-----------|---------|
+| `ticket.md` | `/jira-build` orchestrator | Planner |
 | `spec.md` | Planner | Decomposer, Executor, Evaluator |
 | `tasks.json` | Decomposer | Orchestrator, Executor |
 | `notes.md` | Executor | Evaluator |
