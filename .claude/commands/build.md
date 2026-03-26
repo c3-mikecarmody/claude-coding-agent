@@ -13,6 +13,60 @@ Run an autonomous coding pipeline for the following task: $ARGUMENTS
 
 ---
 
+**Step 0 — Preflight**
+
+**0a. GitHub auth check**
+
+Run:
+
+```bash
+gh auth status
+```
+
+If not authenticated, print:
+
+```
+GitHub CLI is not authenticated. Run `gh auth login` to continue, then re-run this command.
+```
+
+Stop. Do not proceed until auth passes.
+
+**0b. Repo check**
+
+Run:
+
+```bash
+git rev-parse --show-toplevel 2>/dev/null
+```
+
+If this succeeds, you're inside a git repo. Print the repo root path and continue to Step 1.
+
+If it fails, ask the user:
+
+```
+You don't appear to be inside a git repo. How would you like to proceed?
+  1. I don't have the repo yet — provide a GitHub URL or owner/repo and I'll clone it
+  2. I have it locally — tell me the path and I'll navigate there
+```
+
+Wait for the user's response:
+
+- **Option 1 (clone):** Ask for the repo URL or `owner/repo`. Run:
+  ```bash
+  gh repo clone <owner/repo>
+  cd <repo-name>
+  ```
+  Confirm you're now inside the repo root, then continue to Step 1.
+
+- **Option 2 (navigate):** Take the path they provide. Run:
+  ```bash
+  cd <path>
+  git rev-parse --show-toplevel
+  ```
+  If that fails, tell the user the path doesn't appear to be a git repo and ask them to check it. Do not proceed until confirmed.
+
+---
+
 **Step 1 — Setup**
 
 Create the artifacts directory if it doesn't exist:
