@@ -40,19 +40,22 @@ Examples:
 /build add pagination to the /users endpoint
 ```
 
-### `/jira-build`
+### `/ticket-build`
 
-Fetch a Jira ticket and run it through the same pipeline. Requires the Atlassian MCP to be configured.
+Fetch a ticket from Jira and/or GitHub Issues and run it through the same pipeline. Requires the Atlassian MCP for Jira and `gh` CLI for GitHub.
 
 ```
-/jira-build                      # pick from most urgent open tickets
-/jira-build SWAT-42              # run a specific ticket
-/jira-build --urgent             # run the single highest-priority ticket without picking
-/jira-build project=SWAT         # scope ticket search to a project
-/jira-build SWAT-42 project=SWAT # specific ticket, explicit project
+/ticket-build                        # unified priority list from all enabled sources
+/ticket-build --urgent               # top ticket across all sources without prompting
+/ticket-build SWAT-42                # specific Jira ticket
+/ticket-build #123                   # specific GitHub issue
+/ticket-build source=github          # restrict to GitHub Issues only
+/ticket-build source=jira            # restrict to Jira only
+/ticket-build project=SWAT           # scope Jira search to a project
+/ticket-build repo=owner/repo        # scope GitHub search to a repo
 ```
 
-Ticket summary, description, and acceptance criteria are passed to the planner as context. On a passing build, the PR title is automatically set to `<ticket-id>: <summary>`.
+Results from all sources are normalized to a common P1–P4 priority scale and merged into a single list. Priority mappings are configurable in `.claude/ticket-sources.yml`. On a passing build, the PR title is automatically set to `<ticket-id>: <summary>`.
 
 ## Artifacts
 
@@ -60,7 +63,7 @@ All inter-agent communication lives in `.agent/artifacts/` (gitignored by defaul
 
 | File | Written by | Read by |
 |------|-----------|---------|
-| `ticket.md` | `/jira-build` orchestrator | Planner |
+| `ticket.md` | `/ticket-build` orchestrator | Planner |
 | `spec.md` | Planner | Decomposer, Executor, Evaluator |
 | `tasks.json` | Decomposer | Orchestrator, Executor |
 | `notes.md` | Executor | Evaluator |

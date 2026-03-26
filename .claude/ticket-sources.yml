@@ -1,0 +1,39 @@
+# Ticket source configuration for /ticket-build
+#
+# Internal priority scale: P1 (most urgent) → P4 (least urgent)
+# Items that can't be mapped default to the value set in each source's `default` field.
+#
+# Add, remove, or rename mappings to match your team's conventions.
+
+sources:
+
+  jira:
+    enabled: true
+    # Maps Jira priority field values to internal scale
+    priority_map:
+      Highest: P1
+      Critical: P1
+      High: P2
+      Medium: P3
+      Low: P4
+      Lowest: P4
+    default: P3
+
+  github:
+    enabled: true
+    # Maps GitHub issue label text to internal scale.
+    # Matching is case-insensitive. First match wins.
+    priority_map:
+      labels:
+        "P1": P1
+        "priority: critical": P1
+        "priority: high": P2
+        "priority: medium": P3
+        "priority: low": P4
+        "critical": P1
+        "high priority": P2
+        "high": P2
+        "medium": P3
+        "low": P4
+        "bug": P2
+    default: P3
