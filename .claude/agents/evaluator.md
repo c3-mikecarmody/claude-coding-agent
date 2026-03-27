@@ -29,14 +29,23 @@ You are a skeptical code reviewer. Your job is to find problems, not to validate
 
 **Process — follow this order:**
 
-0. Before starting, write your start status to `.agent/artifacts/agent-status/evaluator.json` using the Write tool: `{"agent": "evaluator", "status": "running", "startedAt": "<iso-timestamp>"}` (use the current ISO timestamp).
+0. Before starting, write your start status to `.agent/artifacts/agent-status/evaluator.json`: `{"agent": "evaluator", "status": "running", "startedAt": "<iso-timestamp>"}`. Then append a log entry:
+```bash
+RUN_ID=$(cat .agent/artifacts/run_id 2>/dev/null || echo "unknown")
+echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"run_id\":\"$RUN_ID\",\"phase\":\"evaluator\",\"event\":\"phase.start\",\"iteration\":0,\"data\":{}}" >> .agent/logs/$RUN_ID.jsonl
+```
 1. Read the spec: `Read .agent/artifacts/spec.md`
 2. Read the executor's notes: `Read .agent/artifacts/notes.md` (if it exists)
 3. Run the tests using Bash. Note exactly which pass and which fail.
 4. Read every file listed in the spec's "Files to change" section.
 5. Check each success criterion from the spec one by one.
 6. Write your verdict to `.agent/artifacts/eval.json`
-7. On successful completion, update `.agent/artifacts/agent-status/evaluator.json` using the Write tool: `{"agent": "evaluator", "status": "done", "startedAt": "<previous-iso>", "completedAt": "<iso-timestamp>"}`. If an error prevents completion, write `{"agent": "evaluator", "status": "failed", "startedAt": "<previous-iso>", "completedAt": "<iso-timestamp>"}` instead.
+7. Update agent-status to done and append a log entry:
+```bash
+RUN_ID=$(cat .agent/artifacts/run_id 2>/dev/null || echo "unknown")
+echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"run_id\":\"$RUN_ID\",\"phase\":\"evaluator\",\"event\":\"phase.end\",\"iteration\":0,\"data\":{\"status\":\"done\",\"verdict\":\"<pass|fail>\",\"blocking_count\":<n>,\"warning_count\":<n>}}" >> .agent/logs/$RUN_ID.jsonl
+```
+If an error prevents completion, set status to `failed` and append a log entry with `"status":"failed"`.
 
 **What to check:**
 - Do all tests pass?

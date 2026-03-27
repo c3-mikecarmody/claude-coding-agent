@@ -69,10 +69,13 @@ Wait for the user's response:
 
 **Step 1 — Setup**
 
-Create the artifacts directory if it doesn't exist:
+Create directories and generate a run ID:
 
 ```bash
-mkdir -p .agent/artifacts
+mkdir -p .agent/artifacts .agent/logs .agent/artifacts/agent-status
+TASK_SLUG=$(echo "$ARGUMENTS" | tr '[:upper:] ' '[:lower:]-' | tr -cd '[:alnum:]-' | cut -c1-40)
+RUN_ID="$(date -u +%Y%m%d-%H%M%S)-${TASK_SLUG}"
+echo "$RUN_ID" > .agent/artifacts/run_id
 ```
 
 If there is an existing `.agent/artifacts/eval.json` from a prior run, delete it so the evaluator starts clean.
@@ -83,9 +86,20 @@ Note the current branch name — you'll need it later:
 git branch --show-current
 ```
 
+Write the `run.start` log entry:
+
+```bash
+echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"run_id\":\"$RUN_ID\",\"phase\":\"orchestrator\",\"event\":\"run.start\",\"iteration\":0,\"data\":{\"task\":\"$ARGUMENTS\",\"branch\":\"$(git branch --show-current)\"}}" >> .agent/logs/$RUN_ID.jsonl
+```
+
 ---
 
 **Step 2 — Plan**
+
+Log spawn:
+```bash
+echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"run_id\":\"$RUN_ID\",\"phase\":\"orchestrator\",\"event\":\"agent.spawned\",\"iteration\":0,\"data\":{\"agent\":\"planner\"}}" >> .agent/logs/$RUN_ID.jsonl
+```
 
 Spawn a subagent using `subagent_type: planner` (the custom planner agent, not the built-in Plan type).
 
@@ -93,13 +107,28 @@ Pass it: "Plan this task: $ARGUMENTS"
 
 Wait for it to complete. It will write `.agent/artifacts/spec.md`. If spec.md does not exist after the planner finishes, abort with an error.
 
+Log completion:
+```bash
+echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"run_id\":\"$RUN_ID\",\"phase\":\"orchestrator\",\"event\":\"agent.completed\",\"iteration\":0,\"data\":{\"agent\":\"planner\",\"artifact\":\"spec.md\"}}" >> .agent/logs/$RUN_ID.jsonl
+```
+
 ---
 
 **Step 3 — Decompose**
 
+Log spawn:
+```bash
+echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"run_id\":\"$RUN_ID\",\"phase\":\"orchestrator\",\"event\":\"agent.spawned\",\"iteration\":0,\"data\":{\"agent\":\"decomposer\"}}" >> .agent/logs/$RUN_ID.jsonl
+```
+
 Spawn a subagent using `subagent_type: decomposer`. Tell it: "Decompose the spec into executable tasks."
 
 Wait for it to complete. It will write `.agent/artifacts/tasks.json`. If tasks.json does not exist after the decomposer finishes, abort with an error.
+
+Log completion (include `parallel` and task count from tasks.json):
+```bash
+echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"run_id\":\"$RUN_ID\",\"phase\":\"orchestrator\",\"event\":\"agent.completed\",\"iteration\":0,\"data\":{\"agent\":\"decomposer\",\"artifact\":\"tasks.json\"}}" >> .agent/logs/$RUN_ID.jsonl
+```
 
 ---
 
@@ -109,15 +138,28 @@ Run up to 3 iterations. Track iteration count starting at 1.
 
 **4a. Execute**
 
+Log iteration start:
+```bash
+echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"run_id\":\"$RUN_ID\",\"phase\":\"orchestrator\",\"event\":\"iteration.start\",\"iteration\":$N,\"data\":{}}" >> .agent/logs/$RUN_ID.jsonl
+```
+
 Read `.agent/artifacts/tasks.json`.
 
 - If `parallel: true`: spawn one `subagent_type: executor` per task in parallel, each with `isolation: "worktree"`. Pass each executor its specific task description and file list from tasks.json.
 - If `parallel: false`: spawn a single `subagent_type: executor` with `isolation: "worktree"`.
 
+Log each executor spawn:
+```bash
+echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"run_id\":\"$RUN_ID\",\"phase\":\"orchestrator\",\"event\":\"agent.spawned\",\"iteration\":$N,\"data\":{\"agent\":\"executor\",\"task\":\"<task-id>\"}}" >> .agent/logs/$RUN_ID.jsonl
+```
+
 - Iteration 1: tell each executor "Implement the spec at .agent/artifacts/spec.md. Your task: <task description>. Focus on these files: <file list>"
 - Iterations 2–3: tell each executor "Fix only the blocking issues in .agent/artifacts/eval.json that relate to your files. Do not make unrelated changes. The spec is at .agent/artifacts/spec.md"
 
-Wait for all executors to finish. For each executor that made changes, note the branch name returned.
+Wait for all executors to finish. For each executor that made changes, note the branch name returned. Log each completion:
+```bash
+echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"run_id\":\"$RUN_ID\",\"phase\":\"orchestrator\",\"event\":\"agent.completed\",\"iteration\":$N,\"data\":{\"agent\":\"executor\",\"task\":\"<task-id>\",\"branch\":\"<branch-or-null>\"}}" >> .agent/logs/$RUN_ID.jsonl
+```
 
 **4b. Merge worktree branches**
 
@@ -127,15 +169,32 @@ For each branch returned by an executor:
 git merge <branch> --no-edit
 ```
 
-If any merge produces conflicts, print `[Merge conflict on <branch> — stopping]`, list the conflicting files, and abort the pipeline. Do not proceed to evaluation with a conflicted working tree.
+If any merge produces conflicts, log it and abort:
+```bash
+echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"run_id\":\"$RUN_ID\",\"phase\":\"orchestrator\",\"event\":\"merge.conflict\",\"iteration\":$N,\"data\":{\"branch\":\"<branch>\",\"files\":[]}}" >> .agent/logs/$RUN_ID.jsonl
+```
+Print `[Merge conflict on <branch> — stopping]`, list the conflicting files, and abort the pipeline. Do not proceed to evaluation with a conflicted working tree.
 
-If all merges succeed, continue.
+If all merges succeed, log it and continue:
+```bash
+echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"run_id\":\"$RUN_ID\",\"phase\":\"orchestrator\",\"event\":\"merge.success\",\"iteration\":$N,\"data\":{\"branches\":[]}}" >> .agent/logs/$RUN_ID.jsonl
+```
 
 **4c. Evaluate**
+
+Log spawn:
+```bash
+echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"run_id\":\"$RUN_ID\",\"phase\":\"orchestrator\",\"event\":\"agent.spawned\",\"iteration\":$N,\"data\":{\"agent\":\"evaluator\"}}" >> .agent/logs/$RUN_ID.jsonl
+```
 
 Spawn a subagent using `subagent_type: evaluator`. Tell it: "Evaluate the implementation against the spec at .agent/artifacts/spec.md"
 
 Wait for it to finish. It will print a summary and write `.agent/artifacts/eval.json`. Echo the evaluator's printed summary so it's visible in the main conversation.
+
+Log completion:
+```bash
+echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"run_id\":\"$RUN_ID\",\"phase\":\"orchestrator\",\"event\":\"agent.completed\",\"iteration\":$N,\"data\":{\"agent\":\"evaluator\"}}" >> .agent/logs/$RUN_ID.jsonl
+```
 
 **4d. Archive eval snapshot**
 
@@ -149,9 +208,16 @@ cp .agent/artifacts/eval.json .agent/artifacts/eval-history/eval-$((N+1)).json
 
 **4e. Check verdict**
 
-Read `.agent/artifacts/eval.json`:
+Read `.agent/artifacts/eval.json`. Log the verdict:
+```bash
+echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"run_id\":\"$RUN_ID\",\"phase\":\"orchestrator\",\"event\":\"verdict\",\"iteration\":$N,\"data\":{\"verdict\":\"<pass|fail>\",\"retry\":<true|false>,\"blocking_count\":<n>,\"warning_count\":<n>}}" >> .agent/logs/$RUN_ID.jsonl
+```
+
 - `verdict: "pass"` or `retry: false` → exit loop, go to Step 5
-- `verdict: "fail"` and `retry: true` and iteration < 3 → print `[Iteration N failed — retrying executor with eval feedback]`, increment iteration, go to 4a
+- `verdict: "fail"` and `retry: true` and iteration < 3 → log retry, print `[Iteration N failed — retrying executor with eval feedback]`, increment iteration, go to 4a:
+  ```bash
+  echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"run_id\":\"$RUN_ID\",\"phase\":\"orchestrator\",\"event\":\"retry\",\"iteration\":$N,\"data\":{\"reason\":\"<eval summary>\"}}" >> .agent/logs/$RUN_ID.jsonl
+  ```
 - `verdict: "fail"` and iteration = 3 → exit loop, go to Step 5 (failure path)
 
 ---
@@ -160,6 +226,11 @@ Read `.agent/artifacts/eval.json`:
 
 - If passed: print the eval summary and list any warnings from eval.json.
 - If failed after 3 iterations: print the final eval summary and the list of blocking issues with their file, line, and reason. Tell the user to inspect `.agent/artifacts/eval.json` for the full verdict. Stop here — do not create a PR.
+
+Log run end:
+```bash
+echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"run_id\":\"$RUN_ID\",\"phase\":\"orchestrator\",\"event\":\"run.end\",\"iteration\":$N,\"data\":{\"outcome\":\"<pass|fail>\",\"iterations_used\":$N,\"log\":\".agent/logs/$RUN_ID.jsonl\"}}" >> .agent/logs/$RUN_ID.jsonl
+```
 
 ---
 
@@ -177,6 +248,11 @@ gh pr create --title "<task description>" --body "<eval summary from eval.json>\
 ```
 
 Print the PR URL.
+
+Log PR creation:
+```bash
+echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"run_id\":\"$RUN_ID\",\"phase\":\"orchestrator\",\"event\":\"pr.created\",\"iteration\":$N,\"data\":{\"url\":\"<pr-url>\",\"branch\":\"<branch>\"}}" >> .agent/logs/$RUN_ID.jsonl
+```
 
 If no, stop here.
 

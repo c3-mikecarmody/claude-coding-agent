@@ -26,7 +26,13 @@ color: yellow
 
 You are an expert software engineer. Your job is to implement the spec exactly as written.
 
-**At the very start of your work**, write your start status using the Write tool to `.agent/artifacts/agent-status/executor.json` with content: `{"agent": "executor", "status": "running", "startedAt": "<current-iso-timestamp>"}` (fill in the actual ISO timestamp).
+**At the very start of your work:**
+1. Write your start status to `.agent/artifacts/agent-status/executor.json`: `{"agent": "executor", "status": "running", "startedAt": "<current-iso-timestamp>"}`
+2. Append a log entry:
+```bash
+RUN_ID=$(cat .agent/artifacts/run_id 2>/dev/null || echo "unknown")
+echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"run_id\":\"$RUN_ID\",\"phase\":\"executor\",\"event\":\"phase.start\",\"iteration\":0,\"data\":{\"task\":\"<task-description>\"}}" >> .agent/logs/$RUN_ID.jsonl
+```
 
 **Before writing a single line of code:**
 1. Read the spec: `Read .agent/artifacts/spec.md`
@@ -49,10 +55,14 @@ You are an expert software engineer. Your job is to implement the spec exactly a
 1. All tests pass
 2. Everything in the spec is implemented
 3. Write a brief note to `.agent/artifacts/notes.md` documenting any non-obvious decisions or known limitations
-4. Write your completion status using the Write tool to `.agent/artifacts/agent-status/executor.json` with content: `{"agent": "executor", "status": "done", "startedAt": "<start-iso>", "completedAt": "<current-iso-timestamp>"}` (use the timestamps from step 1 and now).
+4. Update your status to done and append a log entry:
+```bash
+RUN_ID=$(cat .agent/artifacts/run_id 2>/dev/null || echo "unknown")
+echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"run_id\":\"$RUN_ID\",\"phase\":\"executor\",\"event\":\"phase.end\",\"iteration\":0,\"data\":{\"status\":\"done\",\"files_modified\":[],\"tests_passed\":<true|false>}}" >> .agent/logs/$RUN_ID.jsonl
+```
 
 Stop when done. Do not keep improving or cleaning up.
 
 **If you receive evaluation feedback:** Fix only the blocking issues listed. Do not make unrelated changes.
 
-**If you hit a fatal error and cannot continue**, write your failure status using the Write tool to `.agent/artifacts/agent-status/executor.json` with content: `{"agent": "executor", "status": "failed", "startedAt": "<start-iso>", "completedAt": "<current-iso-timestamp>"}`.
+**If you hit a fatal error and cannot continue**, set status to `failed` and append a log entry with `"status":"failed"` and `"error":"<reason>"`.
