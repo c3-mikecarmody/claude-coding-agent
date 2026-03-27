@@ -8,6 +8,48 @@ const net = require('net');
 const REPO_ROOT = path.resolve(__dirname, '../..');
 const ARTIFACTS = path.join(REPO_ROOT, '.agent', 'artifacts');
 
+// ─── Platform Detection ──────────────────────────────────────────────────────
+
+function detectPlatform() {
+  // Check for Claude Code specific indicators
+  if (fs.existsSync(path.join(REPO_ROOT, '.claude/commands/')) && process.env.CLAUDE_CODE) {
+    return 'claude-code';
+  }
+  
+  // Check for Cursor specific indicators  
+  if (fs.existsSync(path.join(REPO_ROOT, '.cursor/')) || process.env.CURSOR_IDE) {
+    return 'cursor';
+  }
+  
+  // Fallback detection based on file structure
+  if (fs.existsSync(path.join(REPO_ROOT, '.claude/')) && !fs.existsSync(path.join(REPO_ROOT, '.cursor/'))) {
+    return 'claude-code';
+  }
+  
+  if (fs.existsSync(path.join(REPO_ROOT, '.cursor/')) && !fs.existsSync(path.join(REPO_ROOT, '.claude/'))) {
+    return 'cursor';
+  }
+  
+  return 'unknown';
+}
+
+// ─── Platform-aware logging helper ──────────────────────────────────────────
+
+function generateLogEntry(runId, phase, event, iteration, data) {
+  const platform = detectPlatform();
+  const timestamp = new Date().toISOString();
+  
+  return JSON.stringify({
+    ts: timestamp,
+    run_id: runId,
+    platform: platform,
+    phase: phase,
+    event: event,
+    iteration: iteration,
+    data: data || {}
+  });
+}
+
 // ─── File helpers ────────────────────────────────────────────────────────────
 
 function readJSON(filePath) {
@@ -51,6 +93,32 @@ function listDir(dirPath) {
   }
 }
 
+
+// ─── Platform Detection ──────────────────────────────────────────────────────
+
+function detectCurrentPlatform() {
+  // Check for Claude Code specific indicators
+  if (fs.existsSync('.claude/commands/') && process.env.CLAUDE_CODE) {
+    return 'claude-code';
+  }
+  
+  // Check for Cursor specific indicators  
+  if (fs.existsSync('.cursor/') || process.env.CURSOR_IDE) {
+    return 'cursor';
+  }
+  
+  // Fallback detection based on file structure
+  if (fs.existsSync('.claude/') && !fs.existsSync('.cursor/')) {
+    return 'claude-code';
+  }
+  
+  if (fs.existsSync('.cursor/') && !fs.existsSync('.claude/')) {
+    return 'cursor';
+  }
+  
+  return 'unknown';
+}
+
 // ─── Status derivation ───────────────────────────────────────────────────────
 
 function derivePhase(ticketExists, specExists, tasksExists, evalData) {
@@ -82,7 +150,10 @@ function parseTicket(text) {
     if (sm) { source = sm[1].trim(); break; }
   }
 
-  return { id, summary, source };
+  const platform = detectCurrentPlatform();
+  
+  return {
+    platform, id, summary, source };
 }
 
 function parseAgents() {
@@ -90,6 +161,7 @@ function parseAgents() {
   const files = listDir(dir);
   const agents = [];
   const now = Date.now();
+  const platform = detectPlatform();
 
   for (const file of files) {
     if (!file.endsWith('.json')) continue;
@@ -105,6 +177,7 @@ function parseAgents() {
     agents.push({
       ...data,
       stalled,
+      platform: data.platform || platform, // Include platform metadata
     });
   }
 
@@ -160,6 +233,7 @@ function buildStatus() {
   const evalData     = readJSON(evalPath);
 
   const phase = derivePhase(ticketExists, specExists, tasksExists, evalData);
+  const platform = detectPlatform();
 
   const ticketText = readText(ticketPath);
   const ticket = parseTicket(ticketText);
@@ -199,6 +273,7 @@ function buildStatus() {
   return {
     phase,
     iteration,
+    platform,
     ticket,
     tasks,
     eval: evalResult,
@@ -244,6 +319,10 @@ const HTML = `<!DOCTYPE html>
     --c-failed: #ef4444;
     --c-stalled: #ef4444;
     --c-running: #22c55e;
+
+    --c-platform-claude: #8b5cf6;
+    --c-platform-cursor: #06b6d4;
+    --c-platform-unknown: #6b7280;
   }
 
   body {
@@ -286,6 +365,11 @@ const HTML = `<!DOCTYPE html>
   .badge-retrying   { background: var(--c-retrying);   color: #fff; animation: pulse 1.4s ease-in-out infinite; }
   .badge-done       { background: var(--c-done);       color: #000; }
   .badge-failed     { background: var(--c-failed);     color: #fff; }
+
+  .platform-badge { font-size: 11px; text-transform: uppercase; }
+  .badge-claude-code { background: var(--c-platform-claude); color: #fff; }
+  .badge-cursor     { background: var(--c-platform-cursor); color: #000; }
+  .badge-unknown    { background: var(--c-platform-unknown); color: #fff; }
 
   @keyframes pulse {
     0%, 100% { opacity: 1; }
@@ -404,6 +488,11 @@ const HTML = `<!DOCTYPE html>
 
   .duration-display { font-size: 12px; color: var(--text-muted); margin-left: 4px; }
 
+  .platform-info { font-size: 13px; line-height: 1.6; }
+  .platform-commands { background: var(--surface2); border-radius: 6px; padding: 12px; margin-top: 10px; font-family: monospace; font-size: 12px; }
+  .platform-commands code { color: var(--accent); }
+  .platform-warning { color: var(--c-failed); font-weight: 500; }
+
   .details-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--text-muted); font-size: 12px; padding: 3px 10px; border-radius: 6px; cursor: pointer; }
   .details-btn:hover { color: var(--text); border-color: var(--accent); }
 
@@ -430,7 +519,9 @@ const HTML = `<!DOCTYPE html>
 <div id="app">
   <div class="header">
     <h1>Agent Pipeline Dashboard</h1>
+    <span id="platform-badge" class="badge" style="background: var(--c-idle); color: #fff; font-size: 11px; margin-left: 8px;"></span>
     <span id="phase-badge" class="badge">loading…</span>
+    <span id="platform-badge" class="badge platform-badge">loading…</span>
     <span id="duration-display" class="duration-display"></span>
     <span id="ticket-info" class="ticket-info"></span>
     <button class="details-btn" onclick="openModal(_lastData)">Details</button>
@@ -440,6 +531,11 @@ const HTML = `<!DOCTYPE html>
   <div class="card">
     <h2>Pipeline</h2>
     <div id="pipeline" class="pipeline"></div>
+  </div>
+
+  <div id="platform-card" class="card">
+    <h2>Platform Status</h2>
+    <div id="platform-content"></div>
   </div>
 
   <div class="card">
@@ -625,6 +721,61 @@ function renderArtifacts(artifacts) {
   </div>\`).join('');
 }
 
+function renderPlatformInfo(platform, phase) {
+  const platformName = platform === 'claude-code' ? 'Claude Code' : 
+                      platform === 'cursor' ? 'Cursor' : 'Unknown';
+  
+  let content = \`<div class="platform-info">
+    <p><strong>Detected Platform:</strong> \${esc(platformName)}</p>\`;
+
+  if (platform === 'claude-code') {
+    content += \`<p>Using Claude Code orchestration with programmatic subagent spawning.</p>
+      <div class="platform-commands">
+        <strong>Available Commands:</strong><br>
+        <code>/build &lt;task&gt;</code> - Run full pipeline<br>
+        <code>/dashboard</code> - Open this dashboard<br>
+        <code>/build-log</code> - View execution logs
+      </div>\`;
+    
+    // Add phase-specific guidance for Claude Code
+    if (phase === 'idle') {
+      content += \`<p><strong>Next Step:</strong> Use <code>/build &lt;your-task&gt;</code> to start a new build.</p>\`;
+    }
+  } else if (platform === 'cursor') {
+    content += \`<p>Using Cursor subagent system with manual orchestration.</p>
+      <div class="platform-commands">
+        <strong>Manual Workflow:</strong><br>
+        1. <code>@planner</code> - Analyze and create spec<br>
+        2. <code>@decomposer</code> - Break down into tasks<br>
+        3. <code>@executor</code> - Implement the solution<br>
+        4. <code>@evaluator</code> - Review and validate
+      </div>\`;
+    
+    // Add phase-specific guidance for Cursor
+    if (phase === 'idle') {
+      content += \`<p><strong>Next Step:</strong> Use <code>@planner</code> to analyze your task and create a spec.</p>\`;
+    } else if (phase === 'planning') {
+      content += \`<p><strong>Next Step:</strong> Use <code>@decomposer</code> to break down the spec into tasks.</p>\`;
+    } else if (phase === 'decomposing') {
+      content += \`<p><strong>Next Step:</strong> Use <code>@executor</code> to implement the solution.</p>\`;
+    } else if (phase === 'executing') {
+      content += \`<p><strong>Next Step:</strong> Use <code>@evaluator</code> to review and validate the implementation.</p>\`;
+    } else if (phase === 'evaluating') {
+      content += \`<p><strong>Status:</strong> Evaluation in progress. Check back soon for results.</p>\`;
+    } else if (phase === 'retrying') {
+      content += \`<p><strong>Next Step:</strong> Use <code>@executor</code> to fix the issues identified by the evaluator.</p>\`;
+    }
+  } else {
+    content += \`<div class="platform-warning">
+        <p>⚠️ Platform not detected. Run <code>node setup.js</code> to configure dual platform support.</p>
+        <p>This repository supports both Claude Code and Cursor platforms.</p>
+      </div>\`;
+  }
+
+  content += '</div>';
+  return content;
+}
+
 function render(data) {
   const phase = data.phase || 'idle';
 
@@ -632,6 +783,21 @@ function render(data) {
   const badge = document.getElementById('phase-badge');
   badge.className = 'badge badge-' + phase;
   badge.textContent = phase;
+  
+  // Platform badge
+  const platformBadge = document.getElementById('platform-badge');
+  if (data.platform) {
+    platformBadge.textContent = data.platform.toUpperCase();
+    platformBadge.style.display = 'inline-block';
+  } else {
+    platformBadge.style.display = 'none';
+  }
+
+  // Platform badge
+  const platformBadge = document.getElementById('platform-badge');
+  const platform = data.platform || 'unknown';
+  platformBadge.className = 'badge platform-badge badge-' + platform.replace('-', '');
+  platformBadge.textContent = platform;
 
   // Ticket
   const ti = document.getElementById('ticket-info');
@@ -687,6 +853,9 @@ function render(data) {
   // Timeline
   document.getElementById('timeline').innerHTML = renderTimeline(data.timeline);
 
+  // Platform info
+  document.getElementById('platform-content').innerHTML = renderPlatformInfo(data.platform || 'unknown', phase);
+
   // Artifacts
   document.getElementById('artifacts').innerHTML = renderArtifacts(data.artifacts);
 
@@ -701,6 +870,9 @@ function openModal(data) {
   if (!data) return;
   var b = document.getElementById('modal-body');
   var h = '';
+  if (data.platform) {
+    h += '<h3>Platform</h3><p><strong>Detected:</strong> ' + esc(data.platform === 'claude-code' ? 'Claude Code' : data.platform === 'cursor' ? 'Cursor' : 'Unknown') + '</p>';
+  }
   if (data.ticket) {
     h += '<h3>Ticket</h3><p><strong>' + esc(data.ticket.id) + '</strong>: ' + esc(data.ticket.summary) + '</p>';
   }

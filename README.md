@@ -1,6 +1,6 @@
 # Coding Agent Autonomy Stack
 
-An autonomous coding pipeline for Claude Code. Drop it into any project and run `/build`.
+An autonomous coding pipeline supporting both Claude Code and Cursor platforms. Drop it into any project and run the build pipeline.
 
 ## How it works
 
@@ -13,38 +13,93 @@ An autonomous coding pipeline for Claude Code. Drop it into any project and run 
 
 If the evaluator finds blocking issues, the executor retries with the feedback. Up to 3 iterations. On a passing build, you'll be prompted to create a PR. Every run produces a timestamped JSONL audit log.
 
+## Platform Support
+
+This stack supports both **Claude Code** and **Cursor** platforms:
+
+| Platform | Orchestration | Setup | Commands |
+|----------|---------------|-------|----------|
+| **Claude Code** | Automatic subagent spawning | Copy `.claude/` directory | `/build`, `/ticket-build`, `/build-log` |
+| **Cursor** | Manual subagent invocation | Run `node setup.js` | Step-by-step guided workflow |
+
+Both platforms share the same artifacts, logging, and dashboard for consistent experience.
+
 ## Setup
 
-Clone and copy `.claude/` into your project root:
+### Quick Setup (Recommended)
 
+```bash
+git clone https://github.com/c3-mikecarmody/claude-coding-agent.git
+cd claude-coding-agent
+
+# Automatic platform detection and setup
+node setup.js
+```
+
+The setup script detects your platform and configures the appropriate components automatically.
+
+### Manual Setup
+
+#### Claude Code Only
 ```bash
 git clone https://github.com/c3-mikecarmody/claude-coding-agent.git
 cp -r claude-coding-agent/.claude /your/project/
 ```
 
-Open the project in Claude Code. No other setup needed.
+#### Cursor Only
+```bash
+git clone https://github.com/c3-mikecarmody/claude-coding-agent.git
+cp -r claude-coding-agent/.cursor /your/project/
+cp -r claude-coding-agent/.agent /your/project/
+```
+
+For detailed platform-specific instructions, see [`PLATFORM.md`](PLATFORM.md).
 
 ## Usage
 
-### `/build`
+### Claude Code (Automatic)
 
-```
+Full automation with programmatic agent orchestration:
+
+```bash
 /build <task description>
 ```
 
 Examples:
-
-```
+```bash
 /build add JWT authentication to the Express API
-/build refactor the data fetching layer to use React Query
+/build refactor the data fetching layer to use React Query  
 /build add pagination to the /users endpoint
 ```
 
-### `/ticket-build`
+### Cursor (Manual)
 
-Fetch a ticket from Jira and/or GitHub Issues and run it through the same pipeline. Requires the Atlassian MCP for Jira and `gh` CLI for GitHub.
+Step-by-step guided workflow with manual subagent invocation:
 
+```bash
+# 1. Get step-by-step instructions
+/build <task description>
+
+# 2. Follow the guided workflow:
+# → Invoke @planner with the task
+# → Invoke @decomposer after planning
+# → Invoke @executor after decomposition  
+# → Invoke @evaluator after implementation
 ```
+
+Example workflow:
+```bash
+/build add JWT authentication to the Express API
+# → Follow displayed steps to invoke @planner, @decomposer, @executor, @evaluator
+```
+
+### Ticket Integration
+
+#### Claude Code: `/ticket-build`
+
+Automated ticket fetching and processing:
+
+```bash
 /ticket-build                        # unified priority list from all enabled sources
 /ticket-build --urgent               # top ticket across all sources without prompting
 /ticket-build SWAT-42                # specific Jira ticket
@@ -55,16 +110,36 @@ Fetch a ticket from Jira and/or GitHub Issues and run it through the same pipeli
 /ticket-build repo=owner/repo        # scope GitHub search to a repo
 ```
 
-Results from all sources are normalized to a common P1–P4 priority scale and merged into a single list. Priority mappings are configurable in `.claude/ticket-sources.yml`. On a passing build, the PR title is automatically set to `<ticket-id>: <summary>`.
+#### Cursor: Manual Ticket Workflow
 
-### `/build-log`
+```bash
+# 1. Get ticket build instructions
+/ticket-build SWAT-42
 
-View the audit log for any build run:
-
+# 2. Follow guided steps to process the ticket through the pipeline
 ```
+
+Results from all sources are normalized to a common P1–P4 priority scale and merged into a single list. Priority mappings are configurable in `.claude/ticket-sources.yml` (Claude Code) or through manual ticket processing (Cursor). On a passing build, the PR title is automatically set to `<ticket-id>: <summary>`.
+
+### Build Logs
+
+#### Claude Code: `/build-log`
+
+```bash
 /build-log           # most recent run
 /build-log <run_id>  # specific run
 /build-log --list    # all runs with outcomes
+```
+
+#### Cursor: Manual Log Access
+
+```bash
+# View logs through command
+/build-log
+
+# Or access log files directly
+ls .agent/logs/
+cat .agent/logs/[run_id].jsonl
 ```
 
 ## Artifacts
@@ -82,13 +157,15 @@ All inter-agent communication lives in `.agent/artifacts/` and `.agent/logs/` (b
 | `artifacts/agent-status/<agent>.json` | Each agent | Orchestrator (live status) |
 | `logs/<run_id>.jsonl` | Orchestrator + all agents | `/build-log` |
 
-### Log format
+### Log Format
 
-Each run produces a JSONL file at `.agent/logs/<run_id>.jsonl`. Every entry shares a common envelope:
+Each run produces a JSONL file at `.agent/logs/<run_id>.jsonl`. Every entry shares a common envelope with platform identification:
 
 ```json
-{"ts": "2026-03-26T14:32:01Z", "run_id": "20260326-143200-add-jwt-auth", "phase": "orchestrator", "event": "run.start", "iteration": 0, "data": {}}
+{"ts": "2026-03-26T14:32:01Z", "run_id": "20260326-143200-add-jwt-auth", "platform": "claude-code", "phase": "orchestrator", "event": "run.start", "iteration": 0, "data": {}}
 ```
+
+The `platform` field identifies whether the run was executed on `claude-code` or `cursor`, enabling platform-specific analysis while maintaining log compatibility.
 
 Events: `run.start`, `run.end`, `agent.spawned`, `agent.completed`, `phase.start`, `phase.end`, `iteration.start`, `verdict`, `retry`, `merge.success`, `merge.conflict`, `pr.created`.
 
@@ -109,8 +186,11 @@ Events: `run.start`, `run.end`, `agent.spawned`, `agent.completed`, `phase.start
 **Distribution**
 - Install script (`curl | sh`) that clones and copies `.claude/` into the current directory
 
-**Cursor support**
-- Cursor doesn't support programmatic agent spawning, so a direct port isn't possible — but the planner/executor/evaluator prompts could be packaged as `.cursor/rules/` files for manual use
+**Enhanced Platform Support**
+- Unified setup script for automatic platform detection and configuration
+- Cross-platform artifact sharing and logging consistency
+- Platform-aware dashboard with tailored UI elements
+- Migration tools for existing single-platform setups
 
 ## Contributing
 
