@@ -23,27 +23,36 @@ The Coding Agent Autonomy Stack supports both Claude Code and Cursor platforms, 
 - Git for version control and worktree management
 - Your target platform (Claude Code or Cursor)
 
-### Platform Detection and Setup
+### Recommended: installer or template
 
-The unified setup script automatically detects your platform and configures the appropriate components:
+- **One-shot installer** (`curl … | bash`) with optional Claude, Cursor, or both: [docs/INSTALL.md](docs/INSTALL.md)
+- **GitHub template** for new repos or manual copy: [docs/install-from-template.md](docs/install-from-template.md)
+
+### Platform detection and setup
+
+After files are in your project root:
 
 ```bash
-# Clone the repository
-git clone https://github.com/c3-mikecarmody/claude-coding-agent.git
-cd claude-coding-agent
-
-# Run platform detection and setup
 node setup.js
 ```
 
-The setup script will:
-1. Detect your current platform (Claude Code, Cursor, or both)
-2. Create necessary directories (`.agent/artifacts/`, `.agent/logs/`)
-3. Install platform-specific configurations
-4. Validate platform requirements
-5. Provide next steps for your platform
+Or choose platforms explicitly:
 
-### Manual Platform Setup
+```bash
+node setup.js --platform=both
+node setup.js --platform=claude-code,cursor
+node setup.js -i
+```
+
+The setup script will:
+
+1. Detect your current platform when using `auto`, or honor `both` / a single platform
+2. Create necessary directories (`.agent/artifacts/`, `.agent/logs/`)
+3. Install or validate platform-specific configurations (Cursor conversion when `.claude/` is present)
+4. Validate requirements
+5. Print next steps
+
+### Manual platform setup
 
 #### Claude Code Only
 

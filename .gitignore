@@ -2,6 +2,9 @@
 .agent/artifacts/
 .agent/logs/
 
+# Accidental nested copy under dashboard (do not commit)
+.agent/dashboard/.agent/
+
 # Platform-specific temporary files
 .cursor/temp/
 .claude/temp/

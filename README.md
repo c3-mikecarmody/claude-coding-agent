@@ -26,32 +26,56 @@ Both platforms share the same artifacts, logging, and dashboard for consistent e
 
 ## Setup
 
-### Quick Setup (Recommended)
+### One-shot installer (add to an existing project)
+
+Installs selected files into a target directory, then runs `setup.js`. You can enable **Claude Code**, **Cursor**, or **both** (not mutually exclusive).
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/c3-mikecarmody/claude-coding-agent/main/scripts/install.sh | bash
+```
+
+Non-interactive example (both platforms, current directory):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/c3-mikecarmody/claude-coding-agent/main/scripts/install.sh | bash -s -- --yes
+```
+
+Full options, forks, pinned refs, and security notes: **[docs/INSTALL.md](docs/INSTALL.md)**.
+
+### GitHub template (new repo or manual copy)
+
+Create a new repository from this one with **Use this template**, then run `node setup.js` in the clone — or copy subtrees into an existing app. Step-by-step: **[docs/install-from-template.md](docs/install-from-template.md)**.
+
+> **Maintainers:** enable **Settings → General → Template repository** on GitHub so **Use this template** appears.
+
+### Clone this repo (development or inspection)
 
 ```bash
 git clone https://github.com/c3-mikecarmody/claude-coding-agent.git
 cd claude-coding-agent
-
-# Automatic platform detection and setup
 node setup.js
 ```
 
-The setup script detects your platform and configures the appropriate components automatically.
+`setup.js` auto-detects the environment, or use `--platform=claude-code|cursor|both` or `-i` for interactive prompts.
 
-### Manual Setup
+### Manual copy (without installer)
 
-#### Claude Code Only
+#### Claude Code only
 ```bash
 git clone https://github.com/c3-mikecarmody/claude-coding-agent.git
 cp -r claude-coding-agent/.claude /your/project/
 ```
 
-#### Cursor Only
+#### Cursor only
 ```bash
 git clone https://github.com/c3-mikecarmody/claude-coding-agent.git
 cp -r claude-coding-agent/.cursor /your/project/
-cp -r claude-coding-agent/.agent /your/project/
+mkdir -p /your/project/.agent/dashboard
+cp claude-coding-agent/.agent/dashboard/server.js /your/project/.agent/dashboard/
+cp claude-coding-agent/setup.js /your/project/
 ```
+
+Append `coding-agent-stack.gitignore.snippet` to your `.gitignore`, then run `node setup.js` in `/your/project`.
 
 For detailed platform-specific instructions, see [`PLATFORM.md`](PLATFORM.md).
 
@@ -184,10 +208,10 @@ Events: `run.start`, `run.end`, `agent.spawned`, `agent.completed`, `phase.start
 - Model choices are currently hardcoded in agent frontmatter
 
 **Distribution**
-- Install script (`curl | sh`) that clones and copies `.claude/` into the current directory
+- Further installer options: [docs/INSTALL.md](docs/INSTALL.md), `scripts/install.sh`
 
 **Enhanced Platform Support**
-- Unified setup script for automatic platform detection and configuration
+- GitHub template workflow — see [docs/install-from-template.md](docs/install-from-template.md)
 - Cross-platform artifact sharing and logging consistency
 - Platform-aware dashboard with tailored UI elements
 - Migration tools for existing single-platform setups

@@ -3,7 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const readline = require('readline');
 
 // ─── Platform Detection ──────────────────────────────────────────────────────
 
@@ -524,37 +524,40 @@ function validateSetup(platform) {
   });
   
   // Platform-specific checks
-  if (platform === 'claude-code' || platform === 'auto') {
+  const needClaude = platform === 'claude-code' || platform === 'both' || platform === 'auto';
+  const needCursor = platform === 'cursor' || platform === 'both' || platform === 'auto';
+
+  if (needClaude) {
     checks.push({
       name: 'Claude Code agents',
       check: () => fs.existsSync('.claude/agents/planner.md'),
-      required: platform === 'claude-code'
+      required: platform === 'claude-code' || platform === 'both'
     });
-    
+
     checks.push({
       name: 'Claude Code commands',
       check: () => fs.existsSync('.claude/commands/build.md'),
-      required: platform === 'claude-code'
+      required: platform === 'claude-code' || platform === 'both'
     });
   }
-  
-  if (platform === 'cursor' || platform === 'auto') {
+
+  if (needCursor) {
     checks.push({
       name: 'Cursor agents directory',
       check: () => fs.existsSync('.cursor/agents'),
-      required: platform === 'cursor'
+      required: platform === 'cursor' || platform === 'both'
     });
-    
+
     checks.push({
       name: 'Cursor commands directory',
       check: () => fs.existsSync('.cursor/commands'),
-      required: platform === 'cursor'
+      required: platform === 'cursor' || platform === 'both'
     });
-    
+
     checks.push({
       name: 'Cursor build command',
       check: () => fs.existsSync('.cursor/commands/build.md'),
-      required: platform === 'cursor'
+      required: platform === 'cursor' || platform === 'both'
     });
   }
   
@@ -579,7 +582,20 @@ function validateSetup(platform) {
 
 function showNextSteps(platform) {
   console.log('\n🚀 Next Steps:');
-  
+
+  if (platform === 'both') {
+    console.log(`
+1. Start the dashboard:
+   node .agent/dashboard/server.js
+
+2. Claude Code: use commands in .claude/commands/ (e.g. /build)
+3. Cursor: follow .cursor/commands/build.md for manual agent steps
+
+4. See PLATFORM.md for platform-specific detail
+`);
+    return;
+  }
+
   if (platform === 'claude-code') {
     console.log(`
 1. Start the dashboard:
@@ -617,9 +633,46 @@ function showNextSteps(platform) {
   }
 }
 
+function parsePlatformsArg(value) {
+  const parts = value.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+  const set = new Set(parts);
+  const hasClaude = set.has('claude-code') || set.has('claude');
+  const hasCursor = set.has('cursor');
+  if (hasClaude && hasCursor) return 'both';
+  if (hasClaude) return 'claude-code';
+  if (hasCursor) return 'cursor';
+  return null;
+}
+
+function promptLine(rl, question) {
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => resolve(answer.trim()));
+  });
+}
+
+async function interactivePlatformChoice() {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    console.log('\nSelect platforms (not mutually exclusive — you can enable both):\n');
+    const rawA = await promptLine(rl, '  Include Claude Code (.claude/)? [Y/n] ');
+    const rawB = await promptLine(rl, '  Include Cursor (.cursor/)? [Y/n] ');
+    const incClaude = rawA.trim() === '' || /^y(es)?$/i.test(rawA.trim());
+    const incCursor = rawB.trim() === '' || /^y(es)?$/i.test(rawB.trim());
+    if (!incClaude && !incCursor) {
+      console.log('❌ Choose at least one platform.');
+      process.exit(1);
+    }
+    if (incClaude && incCursor) return 'both';
+    if (incClaude) return 'claude-code';
+    return 'cursor';
+  } finally {
+    rl.close();
+  }
+}
+
 // ─── Main Setup Function ──────────────────────────────────────────────────────
 
-function main() {
+async function main() {
   console.log('🔧 Coding Agent Autonomy Stack - Platform Setup');
   console.log('===============================================\n');
   
@@ -627,37 +680,51 @@ function main() {
   const args = process.argv.slice(2);
   let targetPlatform = 'auto';
   let force = false;
+  let interactive = false;
   
   for (const arg of args) {
     if (arg.startsWith('--platform=')) {
-      targetPlatform = arg.split('=')[1];
+      const raw = arg.split('=')[1];
+      const parsed = parsePlatformsArg(raw);
+      targetPlatform = parsed || raw;
     } else if (arg === '--force') {
       force = true;
+    } else if (arg === '--interactive' || arg === '-i') {
+      interactive = true;
     } else if (arg === '--help' || arg === '-h') {
       console.log(`Usage: node setup.js [options]
 
 Options:
-  --platform=<platform>  Target platform (auto|claude-code|cursor)
-  --force               Overwrite existing files
+  --platform=<p>       Target: auto | claude-code | cursor | both
+                        Or comma list: claude-code,cursor (same as both)
+  --interactive, -i    Prompt for Claude / Cursor (non-exclusive); ignores auto
+  --force               Overwrite existing files (reserved for future use)
   --help, -h            Show this help
 
 Platforms:
-  auto                  Auto-detect platform and setup both if possible
-  claude-code          Setup for Claude Code only  
-  cursor               Setup for Cursor only
+  auto                  Auto-detect; if unknown, set up both when possible
+  claude-code           Claude Code only
+  cursor                Cursor only
+  both                  Claude Code and Cursor
 
 Examples:
-  node setup.js                    # Auto-detect and setup
-  node setup.js --platform=cursor # Force Cursor setup
-  node setup.js --force           # Overwrite existing files
+  node setup.js
+  node setup.js --platform=cursor
+  node setup.js --platform=both
+  node setup.js --platform=claude-code,cursor
+  node setup.js -i
 `);
       return;
     }
   }
   
-  if (!['auto', 'claude-code', 'cursor'].includes(targetPlatform)) {
+  if (interactive) {
+    targetPlatform = await interactivePlatformChoice();
+  }
+
+  if (!['auto', 'claude-code', 'cursor', 'both'].includes(targetPlatform)) {
     console.log(`❌ Invalid platform: ${targetPlatform}`);
-    console.log('Valid platforms: auto, claude-code, cursor');
+    console.log('Valid: auto, claude-code, cursor, both, or claude-code,cursor');
     process.exit(1);
   }
   
@@ -675,6 +742,8 @@ Examples:
       console.log('\n⚠ Could not auto-detect platform. Setting up for both platforms.');
       setupPlatform = 'both';
     }
+  } else if (targetPlatform === 'both') {
+    setupPlatform = 'both';
   }
   
   console.log(`   Setup mode: ${setupPlatform}`);
@@ -717,7 +786,10 @@ Examples:
 // ─── Entry Point ──────────────────────────────────────────────────────────────
 
 if (require.main === module) {
-  main();
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
 }
 
 module.exports = {
