@@ -7,6 +7,15 @@ Two supported paths: **one-shot installer** (clone + copy + `setup.js`) or **Git
 - **Git** (for the installer clone, or template workflow)
 - **Node.js 18+** (for `setup.js` and the dashboard)
 
+## macOS: double-click installer (one dialog, then fully automatic)
+
+1. Copy **`scripts/InstallCodingAgentStack.command`** from this repo into the **root of the project** where you want the stack (same folder as your app’s `package.json` or main code).
+2. If Finder shows it as a text file, make it executable once: **Terminal →** `chmod +x InstallCodingAgentStack.command`
+3. **Double-click** the `.command` file. Choose **Claude Code only**, **Cursor only**, or **Both** — that is the only question. The script `curl`s `install.sh`, installs into **the folder that contains the script**, and runs `setup.js` with no further prompts.
+4. On failure, read **`coding-agent-install-failure.log`** in that same folder.
+
+Override repo or branch (optional): set `CA_STACK_REPO` / `CA_STACK_REF` / `CA_STACK_INSTALLER_URL` in the environment before launching (e.g. open Terminal, `export …`, then `open /path/to/InstallCodingAgentStack.command` — note Finder double-clicks often **do not** inherit your shell exports; for forks, editing the default URLs at the top of the `.command` file is the reliable approach).
+
 ## One-shot installer (recommended)
 
 From the directory where you want the stack (usually your app repo root):

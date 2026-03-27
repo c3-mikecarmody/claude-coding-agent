@@ -42,6 +42,8 @@ curl -fsSL https://raw.githubusercontent.com/c3-mikecarmody/claude-coding-agent/
 
 Full options, forks, pinned refs, and security notes: **[docs/INSTALL.md](docs/INSTALL.md)**.
 
+**macOS:** copy [`scripts/InstallCodingAgentStack.command`](scripts/InstallCodingAgentStack.command) into your project root, `chmod +x` if needed, double-click — one dialog (Claude / Cursor / both), then everything runs unattended.
+
 ### GitHub template (new repo or manual copy)
 
 Create a new repository from this one with **Use this template**, then run `node setup.js` in the clone — or copy subtrees into an existing app. Step-by-step: **[docs/install-from-template.md](docs/install-from-template.md)**.
